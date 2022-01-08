@@ -15,6 +15,12 @@ typedef struct TLB
     int ref_time;
 } TLB;
 
+typedef struct physical_frame_t
+{
+    char pid;
+    int page;
+} physical_frame_t;
+
 typedef struct node
 {
     int num;
@@ -33,7 +39,7 @@ typedef struct block
 typedef struct PageTable
 {
     int PFN_DBI; //virtual page number and disk block number
-    bool reference;
+    int reference;
     int present;
     int ref_time;
     int enter_time;
@@ -52,3 +58,4 @@ void print_free_frames();
 void print_page_table();
 void print_disk();
 void tlb_clear(char pid, int page);
+void print_pframe();

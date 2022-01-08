@@ -10,8 +10,10 @@ int time_q=0;
 int n_pframe;
 int fifo_time=0;
 int block_id=0;
+int global_clock=0;
+int* local_clock=0;
 
-int* physical_frame;
+physical_frame_t* physical_frame;
 
 Node* free_frame;
 Block* disk;
@@ -40,7 +42,7 @@ void start()
     int page_index;
 
 
-    int debug=0;
+    int debug __attribute__ ((unused)) = 0;
 
     FILE *fp=fopen("trace.txt","r");
     while(fscanf(fp," %[^(] ( %[^,] , %[^)]",tmp,process_id,page_id_tmp)!=EOF)
@@ -53,9 +55,13 @@ void start()
         int tlb_ret=tlb_check(page_index);
 
 
-        printf("iter: %d process : %s virtual: %d\n",time_q,process_id,page_index);
-        if(debug) getchar();
-        // if(time_q>100) debug=1;
+        // print_disk();
+        // print_page_table();
+        // print_pframe();
+        printf("iter: %d process : %s virtual: %d \n",time_q,process_id,page_index);
+
+        // if(debug) getchar();
+        if(time_q>100) debug=1;
         // fprintf(trace,"%d ",time_q);
         if(tlb_ret==-1)
         {
@@ -65,14 +71,19 @@ void start()
             if(page_ret==-1)
             {
                 //page fault
-                printf("page fault\n");
+                // printf("page fault\n");
                 fprintf(trace,"Process %s, TLB Miss, Page Fault, ",process_id);
                 page_ret=Page_replace(process_id,page_index);
+                if(page_ret==-999)
+                {
+                    fprintf(stderr,"error in page replacement\n");
+                    exit(EXIT_FAILURE);
+                }
 
             }
             else
             {
-                printf("page hit\n");
+                // printf("page hit\n");
                 // Page hit
                 fprintf(trace,"Process %s, TLB Miss, Page Hit, %d=>%d\n",process_id,page_index,page_ret);
 
@@ -94,9 +105,7 @@ void start()
         prev_pid=process_id[0];
 
 
-        // print_tlb();
-        // print_page_table();
-        // print_disk();
+
 
         time_q++;
         memset(tmp,0,20);
@@ -111,22 +120,14 @@ void print_page_table()
     printf("page table:\n");
     for(int i=0; i<n_vpage; i++)
     {
-        printf("%d %d %d \t\t", i, page_table[0][i].PFN_DBI, page_table[0][i].present);
-        printf("%d %d %d \n", i, page_table[1][i].PFN_DBI, page_table[1][i].present);
+        printf("%d %d %d %d\t\t", i, page_table[0][i].PFN_DBI, page_table[0][i].present, page_table[0][i].reference);
+        printf("%d %d %d %d\n", i, page_table[1][i].PFN_DBI, page_table[1][i].present, page_table[0][i].reference);
     }
 }
 
 void print_disk()
 {
     printf("disk num%d:\n",block_id);
-    // for(int i=0;i<block_id;i++)
-    //     for(int j=0;j<n_process*n_vpage;j++){
-    //         if(disk[j].blockid==i )
-    //         printf("blockID: %d PID: %c Vir: %d Empty: %d\n", disk[j].blockid, disk[j].pid, disk[j].num, disk[j].empty);
-
-    //     }
-    // printf("\n\n");
-
     Block* tmp = disk;
     while(tmp!=NULL)
     {
@@ -138,9 +139,10 @@ void print_disk()
 void print_tlb()
 {
     printf("TLB:\n");
-    for(int i=0; i<32; i++)
+    for(int i=0; i<16; i+=2)
     {
-        printf("%d %d %d %d\n",i,tlb[i].VPN,tlb[i].PFN,tlb[i].ref_time);
+        printf("%d %d %d %d\t\t",i,tlb[i].VPN,tlb[i].PFN,tlb[i].ref_time);
+        printf("%d %d %d %d\n",i+1,tlb[i+1].VPN,tlb[i+1].PFN,tlb[i+1].ref_time);
     }
 
     printf("\n\n");
@@ -162,6 +164,16 @@ void tlb_clear(char pid, int page)
     }
 }
 
+void print_pframe()
+{
+    printf("physical frame : pointer at %d\n",global_clock);
+    for(int i=0; i<n_pframe; i+=2)
+    {
+        printf("%d %c %d\t\t",i,physical_frame[i].pid,physical_frame[i].page);
+        printf("%d %c %d\n",i+1,physical_frame[i+1].pid,physical_frame[i+1].page);
+    }
+}
+
 
 int Page_replace(const char* pid,const int virtual )
 {
@@ -177,6 +189,11 @@ int Page_replace(const char* pid,const int virtual )
         page_table[pid[0]-'A'][virtual].ref_time=time_q;
         page_table[pid[0]-'A'][virtual].enter_time=time_q;
         fprintf(trace,"%d, Evict -1 of Process %s to -1, %d<<-1\n",new_frame,pid,virtual);
+
+        //assign the pid and page no. to the physical frame array
+        physical_frame[new_frame].page=virtual;
+        physical_frame[new_frame].pid=pid[0];
+
         return new_frame;
     }
     else
@@ -197,12 +214,12 @@ int Page_replace(const char* pid,const int virtual )
                         victim=i;
                     }
                 }
-                printf("found victim %d\n",victim);
+                // printf("found victim %d\n",victim);
                 //check page table
                 if(page_table[pid[0]-'A'][virtual].present==-1)
                 {
                     //first time
-                    printf("first reference\n");
+                    // printf("first reference\n");
                     //put frame into the space that we found
                     // print_page_table();
                     int physical_page=page_table[pid[0]-'A'][victim].PFN_DBI;
@@ -266,6 +283,119 @@ int Page_replace(const char* pid,const int virtual )
             else
             {
                 //second chance
+
+                int victim_pid=0;
+                int victim_page=0;
+                int frame_pointer=0;
+                //choose victim age
+                while(1)
+                {
+                    // printf("current clock %d %d\n",local_clock[pid[0]-'A'],n_pframe);
+
+                    if(physical_frame[local_clock[pid[0]-'A']].pid!=pid[0])
+                    {
+                        if(++local_clock[pid[0]-'A']==n_pframe) local_clock[pid[0]-'A']=0;
+                        continue;
+                    }
+
+                    if(page_table[physical_frame[local_clock[pid[0]-'A']].pid-'A'][physical_frame[local_clock[pid[0]-'A']].page].reference==1)
+                    {
+                        page_table[physical_frame[local_clock[pid[0]-'A']].pid-'A'][physical_frame[local_clock[pid[0]-'A']].page].reference=0;
+                    }
+                    else if(page_table[physical_frame[local_clock[pid[0]-'A']].pid-'A'][physical_frame[local_clock[pid[0]-'A']].page].reference==0)
+                    {
+
+                        victim_page=physical_frame[local_clock[pid[0]-'A']].page;
+                        victim_pid=physical_frame[local_clock[pid[0]-'A']].pid-'A';
+
+                        frame_pointer=local_clock[pid[0]-'A'];
+
+                        if(++local_clock[pid[0]-'A']==n_pframe) local_clock[pid[0]-'A']=0;
+
+                        break;
+                    }
+
+
+                    if(++local_clock[pid[0]-'A']==n_pframe) local_clock[pid[0]-'A']=0;
+                }
+
+                // printf("finish choose victim %c %d \n",victim_pid+'A',victim_page);
+
+                // assign pid and pagae to victim
+                if(page_table[pid[0]-'A'][virtual].present==-1)
+                {
+                    //first reference
+                    int physical_page =page_table[victim_pid][victim_page].PFN_DBI;
+                    page_table[pid[0]-'A'][virtual].enter_time=time_q;
+                    page_table[pid[0]-'A'][virtual].ref_time=time_q;
+                    page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
+                    page_table[pid[0]-'A'][virtual].present=1;
+                    page_table[pid[0]-'A'][virtual].reference=0;
+
+
+                    //swap victim to disk
+                    int blockid = create_block(victim_page,victim_pid+'A');
+
+                    page_table[victim_pid][victim_page].present=0;
+                    page_table[victim_pid][victim_page].PFN_DBI=blockid;
+
+                    //change physical frame
+                    physical_frame[frame_pointer].page=virtual;
+                    physical_frame[frame_pointer].pid=pid[0];
+
+                    fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,-1);
+
+                    tlb_clear(victim_pid+'A',victim_page);
+
+                    return physical_page;
+
+                }
+                else if(page_table[pid[0]-'A'][virtual].present==0)
+                {
+                    //go to disk
+
+                    //get disk block id
+                    int prev_block=page_table[pid[0]-'A'][virtual].PFN_DBI;
+
+                    //assign virtual page to the selected victim frame
+                    int physical_page =page_table[victim_pid][victim_page].PFN_DBI;
+                    page_table[pid[0]-'A'][virtual].enter_time=time_q;
+                    page_table[pid[0]-'A'][virtual].ref_time=time_q;
+                    page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
+                    page_table[pid[0]-'A'][virtual].present=1;
+                    page_table[pid[0]-'A'][virtual].reference=0;
+
+                    //swap victim to disk
+                    int blockid=create_block(victim_page,victim_pid+'A');
+                    page_table[victim_pid][victim_page].present=0;
+                    page_table[victim_pid][victim_page].PFN_DBI=blockid;
+                    fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,prev_block);
+
+                    //assign physical frame
+                    physical_frame[frame_pointer].page=virtual;
+                    physical_frame[frame_pointer].pid=pid[0];
+
+                    tlb_clear(victim_pid+'A',victim_page);
+
+                    //set block that swapped in to empty
+                    Block* tmp = disk;
+                    while(tmp!=NULL)
+                    {
+                        if(tmp->blockid==prev_block)
+                        {
+                            tmp->empty=1;
+                            break;
+                        }
+                        tmp=tmp->next;
+                    }
+
+                    return physical_page;
+
+
+                }
+
+
+
             }
         }
         else
@@ -353,20 +483,126 @@ int Page_replace(const char* pid,const int virtual )
                         tmp=tmp->next;
                     }
 
+                    tlb_clear(victim_pid+'A',victim_page);
                     return physical_page;
+                }
+            }
+            else
+            {
+                // printf("global clock\n");
+                //second chance
+                int victim_pid=0;
+                int victim_page=0;
+                int frame_pointer=0;
+                //choose victim age
+                while(1)
+                {
+                    printf("current clock %d %d\n",global_clock,n_pframe);
+                    if(page_table[physical_frame[global_clock].pid-'A'][physical_frame[global_clock].page].reference==1)
+                    {
+                        page_table[physical_frame[global_clock].pid-'A'][physical_frame[global_clock].page].reference=0;
+                    }
+                    else if(page_table[physical_frame[global_clock].pid-'A'][physical_frame[global_clock].page].reference==0)
+                    {
+
+                        victim_page=physical_frame[global_clock].page;
+                        victim_pid=physical_frame[global_clock].pid-'A';
+
+                        frame_pointer=global_clock;
+
+                        if(++global_clock==n_pframe) global_clock=0;
+
+                        break;
+                    }
+
+
+                    if(++global_clock==n_pframe) global_clock=0;
+                }
+
+                printf("finish choose victim %c %d \n",victim_pid+'A',victim_page);
+
+                // assign pid and pagae to victim
+                if(page_table[pid[0]-'A'][virtual].present==-1)
+                {
+                    //first reference
+                    int physical_page =page_table[victim_pid][victim_page].PFN_DBI;
+                    page_table[pid[0]-'A'][virtual].enter_time=time_q;
+                    page_table[pid[0]-'A'][virtual].ref_time=time_q;
+                    page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
+                    page_table[pid[0]-'A'][virtual].present=1;
+                    page_table[pid[0]-'A'][virtual].reference=0;
+
+
+                    //swap victim to disk
+                    int blockid = create_block(victim_page,victim_pid+'A');
+
+                    page_table[victim_pid][victim_page].present=0;
+                    page_table[victim_pid][victim_page].PFN_DBI=blockid;
+
+                    //change physical frame
+                    physical_frame[frame_pointer].page=virtual;
+                    physical_frame[frame_pointer].pid=pid[0];
+
+                    fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,-1);
+
+                    tlb_clear(victim_pid+'A',victim_page);
+
+                    return physical_page;
+
+                }
+                else if(page_table[pid[0]-'A'][virtual].present==0)
+                {
+                    //go to disk
+
+                    //get disk block id
+                    int prev_block=page_table[pid[0]-'A'][virtual].PFN_DBI;
+
+                    //assign virtual page to the selected victim frame
+                    int physical_page =page_table[victim_pid][victim_page].PFN_DBI;
+                    page_table[pid[0]-'A'][virtual].enter_time=time_q;
+                    page_table[pid[0]-'A'][virtual].ref_time=time_q;
+                    page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
+                    page_table[pid[0]-'A'][virtual].present=1;
+                    page_table[pid[0]-'A'][virtual].reference=0;
+
+                    //swap victim to disk
+                    int blockid=create_block(victim_page,victim_pid+'A');
+                    page_table[victim_pid][victim_page].present=0;
+                    page_table[victim_pid][victim_page].PFN_DBI=blockid;
+                    fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,prev_block);
+
+                    //assign physical frame
+                    physical_frame[frame_pointer].page=virtual;
+                    physical_frame[frame_pointer].pid=pid[0];
+
+                    tlb_clear(victim_pid+'A',victim_page);
+
+                    //set block that swapped in to empty
+                    Block* tmp = disk;
+                    while(tmp!=NULL)
+                    {
+                        if(tmp->blockid==prev_block)
+                        {
+                            tmp->empty=1;
+                            break;
+                        }
+                        tmp=tmp->next;
+                    }
+
+                    return physical_page;
+
+
                 }
 
 
 
-
-
-            }
-            else
-            {
-                //second chance
             }
         }
     }
+
+
+    //when return -999 means something is wrong QQ
+    return -999;
 }
 
 void print_free_frames()
@@ -378,7 +614,7 @@ void print_free_frames()
         tmp=tmp->next;
     }
 }
-//find the missing block number 15
+
 int create_block(int num, char pid)
 {
 
@@ -505,7 +741,7 @@ void parse_config()
 {
     FILE *fp;
     char tmp[50];
-    int w;
+    int w __attribute__((unused));
     char n_proc[10];
     char n_v[10];
     char n_p[10];
@@ -536,8 +772,9 @@ void initial_all()
     memset(tlb,-1,sizeof(TLB)*32);
 
     //initial physical frame to -1
-    physical_frame=(int*)malloc(sizeof(int)*n_pframe);
-    memset(physical_frame,-1,n_pframe);
+    physical_frame=(physical_frame_t*)malloc(sizeof(physical_frame_t)*n_pframe);
+    memset(physical_frame,-1,sizeof(physical_frame_t)*n_pframe);
+    global_clock=0;
 
     //initial free frame list
     free_frame=(Node*)malloc(sizeof(Node));
@@ -562,13 +799,17 @@ void initial_all()
         for(int j=0; j<n_vpage; ++j)
         {
             page_table[i][j].enter_time=INT_MAX;
+            page_table[i][j].reference=0;
         }
     }
 
     //initial disk
     disk=NULL;
-    // disk=(Block*)malloc(sizeof(Block)*n_process*n_vpage);
-    // memset(disk,-1,sizeof(Block)*n_process*n_vpage);
+
+    //initial clock pointer
+    global_clock=0;
+    local_clock=(int*)malloc(sizeof(int)*n_process);
+    memset(local_clock,0,sizeof(int)*n_process);
 }
 
 
