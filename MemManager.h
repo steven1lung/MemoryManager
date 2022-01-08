@@ -9,6 +9,7 @@
 
 typedef struct TLB
 {
+    char pid;
     int VPN; //virtual frame number
     int PFN; //physical frame number
     int ref_time;
@@ -39,14 +40,15 @@ typedef struct PageTable
 } PageTable;
 
 void parse_config();
-void construct_page_table();
+void initial_all();
 int tlb_check(const int index);
 int table_check(const char* pid,const int index);
 void flush_tlb();
-void TLB_replace(int virtual,int physical);
+void TLB_replace(int virtual,int physical,char pid);
 void start();
 int Page_replace(const char* pid,const int virtual );
 int create_block(int num, char pid);
 void print_free_frames();
 void print_page_table();
 void print_disk();
+void tlb_clear(char pid, int page);
