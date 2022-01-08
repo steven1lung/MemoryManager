@@ -12,7 +12,10 @@ int fifo_time=0;
 int block_id=0;
 int global_clock=0;
 int* local_clock=0;
-
+int* page_fault;
+int* tlb_hit;
+int* tlb_lookup;
+int* total_mem;
 physical_frame_t* physical_frame;
 
 Node* free_frame;
@@ -21,6 +24,7 @@ PageTable** page_table;
 TLB tlb[32];
 FILE* trace;
 
+
 int main()
 {
 
@@ -28,8 +32,9 @@ int main()
     initial_all();
     trace = fopen("trace_output.txt","w");
     start();
-
     fclose(trace);
+    analysize();
+
     return 0;
 }
 
@@ -51,6 +56,8 @@ void start()
 
         page_index=atoi(page_id_tmp);
 
+        total_mem[process_id[0]-'A']++;
+        tlb_lookup[process_id[0]-'A']++;
         if(prev_pid!=process_id[0]) flush_tlb();
         int tlb_ret=tlb_check(page_index);
 
@@ -72,6 +79,7 @@ void start()
             {
                 //page fault
                 // printf("page fault\n");
+                page_fault[process_id[0]-'A']++;
                 fprintf(trace,"Process %s, TLB Miss, Page Fault, ",process_id);
                 page_ret=Page_replace(process_id,page_index);
                 if(page_ret==-999)
@@ -89,6 +97,8 @@ void start()
 
             }
             TLB_replace(page_index,page_ret,process_id[0]);
+            tlb_lookup[process_id[0]-'A']++;
+            tlb_hit[process_id[0]-'A']++;
             fprintf(trace,"Process %s, TLB Hit, %d=>%d\n",process_id,page_index,tlb_check(page_index));
             page_table[process_id[0]-'A'][page_index].reference=1;
             page_table[process_id[0]-'A'][page_index].ref_time=time_q;
@@ -96,7 +106,7 @@ void start()
         else
         {
             //TLB hit
-            // printf("TLB hit %d in %s\n",page_index,process_id);
+            tlb_hit[process_id[0]-'A']++;
             fprintf(trace,"Process %s, TLB Hit, %d=>%d\n",process_id,page_index,tlb_ret);
             page_table[process_id[0]-'A'][page_index].reference=1;
             page_table[process_id[0]-'A'][page_index].ref_time=time_q;
@@ -605,6 +615,30 @@ int Page_replace(const char* pid,const int virtual )
     return -999;
 }
 
+void analysize()
+{
+    FILE* out=fopen("analysis.txt","w");
+
+    double m =100;
+    double t = 20;
+
+    for(int i=0; i<n_process; i++)
+    {
+        double eat=0;
+        double rate=0;
+        double hit_rate=0;
+        //caclulate the results
+        rate = (double)(page_fault[i])/(double)(total_mem[i]);
+        hit_rate = (double)(tlb_hit[i])/(double)(tlb_lookup[i]);
+        eat = hit_rate*(m+t)+(1-hit_rate)*(2*m+t);
+
+        fprintf(out,"Process %c, Effective Access Time = %.3lf\n",i+'A',eat);
+        if(i==n_process-1) fprintf(out,"Process %c, Page Fault Rate: %.3lf",i+'A',rate);
+        else fprintf(out,"Process %c, Page Fault Rate: %.3lf\n",i+'A',rate);
+    }
+    fclose(out);
+}
+
 void print_free_frames()
 {
     Node* tmp = free_frame;
@@ -810,6 +844,23 @@ void initial_all()
     global_clock=0;
     local_clock=(int*)malloc(sizeof(int)*n_process);
     memset(local_clock,0,sizeof(int)*n_process);
+
+    //initialize page fault counter
+    page_fault = (int*)malloc(sizeof(int)*n_process);
+    memset(page_fault,0,sizeof(int)*n_process);
+
+    //initialize total mem access counter
+    total_mem = (int*)malloc(sizeof(int)*n_process);
+    memset(total_mem,0,sizeof(int)*n_process);
+
+    //iniitialize tlb hit counter
+    tlb_hit = (int*)malloc(sizeof(int)*n_process);
+    memset(tlb_hit,0,sizeof(int)*n_process);
+
+    //iniitialize tlb lookup counter
+    tlb_lookup = (int*)malloc(sizeof(int)*n_process);
+    memset(tlb_lookup,0,sizeof(int)*n_process);
+
 }
 
 

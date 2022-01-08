@@ -59,3 +59,4 @@ void print_page_table();
 void print_disk();
 void tlb_clear(char pid, int page);
 void print_pframe();
+void analysize();
