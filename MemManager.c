@@ -62,23 +62,26 @@ void start()
         int tlb_ret=tlb_check(page_index);
 
 
-        // print_disk();
-        // print_page_table();
-        // print_pframe();
-        printf("iter: %d process : %s virtual: %d \n",time_q,process_id,page_index);
 
-        // if(debug) getchar();
-        if(time_q>100) debug=1;
-        // fprintf(trace,"%d ",time_q);
+
+
+        if(debug)
+        {
+            print_tlb();
+            print_disk();
+            print_page_table();
+            print_pframe();
+            getchar();
+        }
+        // if(time_q>100) debug=1;
+
         if(tlb_ret==-1)
         {
             //TLB miss
-            // printf("TLB miss\n");
             int page_ret=table_check(process_id,page_index);
             if(page_ret==-1)
             {
                 //page fault
-                // printf("page fault\n");
                 page_fault[process_id[0]-'A']++;
                 fprintf(trace,"Process %s, TLB Miss, Page Fault, ",process_id);
                 page_ret=Page_replace(process_id,page_index);
@@ -91,7 +94,6 @@ void start()
             }
             else
             {
-                // printf("page hit\n");
                 // Page hit
                 fprintf(trace,"Process %s, TLB Miss, Page Hit, %d=>%d\n",process_id,page_index,page_ret);
 
@@ -224,31 +226,25 @@ int Page_replace(const char* pid,const int virtual )
                         victim=i;
                     }
                 }
-                // printf("found victim %d\n",victim);
+
                 //check page table
                 if(page_table[pid[0]-'A'][virtual].present==-1)
                 {
                     //first time
-                    // printf("first reference\n");
+
                     //put frame into the space that we found
-                    // print_page_table();
                     int physical_page=page_table[pid[0]-'A'][victim].PFN_DBI;
                     page_table[pid[0]-'A'][virtual].enter_time=time_q;
                     page_table[pid[0]-'A'][virtual].ref_time=time_q;
                     page_table[pid[0]-'A'][virtual].reference=0;
                     page_table[pid[0]-'A'][virtual].present=1;
                     page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
-                    printf("finish update page table for %d \n",virtual);
 
                     //swap victim to disk
                     int blockid=create_block(victim,pid[0]);
-                    // printf("local\n");
-                    // printf("store %c %d to disk %d\n",victim_pid+'A',victim_page,blockid);
-                    // printf("store %c %d to physical %d\n",pid[0],virtual,physical_page);
-
-
                     page_table[pid[0]-'A'][victim].present=0;
                     page_table[pid[0]-'A'][victim].PFN_DBI=blockid;
+
                     fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim,pid[0],blockid,virtual,-1);
 
                     tlb_clear(pid[0],victim);
@@ -273,9 +269,7 @@ int Page_replace(const char* pid,const int virtual )
                     fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim,pid[0],blockid,virtual,prev_block);
 
 
-
-                    // printf("chaasdasdnged block %c %d from %d to 1\n",pid[0],virtual,disk[(pid[0]-'A')*n_vpage+virtual].empty);
-                    //change block id:  prev_block to 1
+                    //change block id:  prev_block to empty
                     Block* tmp = disk;
                     while(tmp!=NULL)
                     {
@@ -300,7 +294,6 @@ int Page_replace(const char* pid,const int virtual )
                 //choose victim age
                 while(1)
                 {
-                    // printf("current clock %d %d\n",local_clock[pid[0]-'A'],n_pframe);
 
                     if(physical_frame[local_clock[pid[0]-'A']].pid!=pid[0])
                     {
@@ -329,8 +322,6 @@ int Page_replace(const char* pid,const int virtual )
                     if(++local_clock[pid[0]-'A']==n_pframe) local_clock[pid[0]-'A']=0;
                 }
 
-                // printf("finish choose victim %c %d \n",victim_pid+'A',victim_page);
-
                 // assign pid and pagae to victim
                 if(page_table[pid[0]-'A'][virtual].present==-1)
                 {
@@ -400,22 +391,14 @@ int Page_replace(const char* pid,const int virtual )
                     }
 
                     return physical_page;
-
-
                 }
-
-
-
             }
         }
         else
         {
-
             //global policy
             if(!strcmp(page_policy,"FIFO"))
             {
-
-                // print_tlb();
                 //FIFO
 
                 int victim_page=0;
@@ -430,11 +413,10 @@ int Page_replace(const char* pid,const int virtual )
                         }
                     }
                 //check page table
-                // printf("victim : %d of %c ",victim_page,victim_pid+'A');
                 if(page_table[pid[0]-'A'][virtual].present==-1)
                 {
-                    //first time
-                    // printf("first reference\n");
+                    //first reference
+
                     //put frame into the space that we found
                     int physical_page=page_table[victim_pid][victim_page].PFN_DBI;
                     page_table[pid[0]-'A'][virtual].enter_time=time_q;
@@ -445,13 +427,9 @@ int Page_replace(const char* pid,const int virtual )
 
                     //swap victim to disk
                     int blockid=create_block(victim_page,victim_pid+'A');
-
-                    // printf("store %c %d to disk %d\n",victim_pid+'A',victim_page,blockid);
-                    // printf("store %c %d to physical %d\n",pid[0],virtual,physical_page);
-
-
                     page_table[victim_pid][victim_page].present=0;
                     page_table[victim_pid][victim_page].PFN_DBI=blockid;
+
                     fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,-1);
 
                     tlb_clear(victim_pid+'A',victim_page);
@@ -460,10 +438,7 @@ int Page_replace(const char* pid,const int virtual )
                 }
                 else if(page_table[pid[0]-'A'][virtual].present==0)
                 {
-
-                    //go to disk
-                    // printf("refernece before from disk %c %d\n",pid[0],virtual);
-                    // fprintf(trace,"%c %d is in disk ",pid[0],virtual);
+                    //find virtual page in disk block to swap in
                     int prev_block = page_table[pid[0]-'A'][virtual].PFN_DBI;
 
                     int physical_page=page_table[victim_pid][victim_page].PFN_DBI;
@@ -478,10 +453,7 @@ int Page_replace(const char* pid,const int virtual )
                     page_table[victim_pid][victim_page].PFN_DBI=blockid;
                     fprintf(trace,"%d, Evict %d of Process %c to %d, %d<<%d\n",physical_page,victim_page,victim_pid+'A',blockid,virtual,prev_block);
 
-
-
-                    // printf("chaasdasdnged block %c %d from %d to 1\n",pid[0],virtual,disk[(pid[0]-'A')*n_vpage+virtual].empty);
-                    //change block id:  prev_block to 1
+                    //change block id:  prev_block to empty
                     Block* tmp = disk;
                     while(tmp!=NULL)
                     {
@@ -499,15 +471,14 @@ int Page_replace(const char* pid,const int virtual )
             }
             else
             {
-                // printf("global clock\n");
                 //second chance
+
                 int victim_pid=0;
                 int victim_page=0;
                 int frame_pointer=0;
-                //choose victim age
+                //choose victim page
                 while(1)
                 {
-                    printf("current clock %d %d\n",global_clock,n_pframe);
                     if(page_table[physical_frame[global_clock].pid-'A'][physical_frame[global_clock].page].reference==1)
                     {
                         page_table[physical_frame[global_clock].pid-'A'][physical_frame[global_clock].page].reference=0;
@@ -529,8 +500,6 @@ int Page_replace(const char* pid,const int virtual )
                     if(++global_clock==n_pframe) global_clock=0;
                 }
 
-                printf("finish choose victim %c %d \n",victim_pid+'A',victim_page);
-
                 // assign pid and pagae to victim
                 if(page_table[pid[0]-'A'][virtual].present==-1)
                 {
@@ -541,7 +510,6 @@ int Page_replace(const char* pid,const int virtual )
                     page_table[pid[0]-'A'][virtual].PFN_DBI=physical_page;
                     page_table[pid[0]-'A'][virtual].present=1;
                     page_table[pid[0]-'A'][virtual].reference=0;
-
 
                     //swap victim to disk
                     int blockid = create_block(victim_page,victim_pid+'A');
@@ -600,12 +568,7 @@ int Page_replace(const char* pid,const int virtual )
                     }
 
                     return physical_page;
-
-
                 }
-
-
-
             }
         }
     }

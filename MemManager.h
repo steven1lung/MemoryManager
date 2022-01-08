@@ -57,6 +57,7 @@ int create_block(int num, char pid);
 void print_free_frames();
 void print_page_table();
 void print_disk();
+void print_tlb();
 void tlb_clear(char pid, int page);
 void print_pframe();
 void analysize();
